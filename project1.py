@@ -3,6 +3,7 @@ import pandas as pd
 from math import log
 from scipy.special import gammaln 
 import networkx as nx
+import pprint
 
 
 def write_gph(dag, idx2names, filename):
@@ -22,6 +23,7 @@ def initialize_counts(df, parents_dict):
         else:
             # Count occurrences of node values given parent instantiations
             parent_values = df[parents].drop_duplicates().values
+            print(f"parent_values: {parent_values}")
             for p_vals in parent_values:
                 subset = df[(df[parents] == p_vals).all(axis=1)]
                 counts_dict[(node, tuple(p_vals))] = subset[node].value_counts().to_dict()
@@ -98,10 +100,14 @@ def k2(df, node_order, max_parents=3):
 def compute(infile, outfile):
     # Read the input CSV file using pandas
     df = pd.read_csv(infile)
-    parents_dict = {}
+    parents_dict = {
+        'survived': ['age', 'fare']
+    }
     
     # Initialize counts for all nodes
     counts_dict = initialize_counts(df, parents_dict)
+
+    pprint.pprint(counts_dict)
 
     # Initialize score dictionary
     score_dict = {}
@@ -113,6 +119,10 @@ def compute(infile, outfile):
     total_score = compute_bayesian_score(score_dict)
     # Output the intial total score and return data structures for further updates
     print(f"Initial Bayesian Score: {total_score}")
+
+
+
+
 
     
 
