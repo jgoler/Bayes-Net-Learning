@@ -8,4 +8,5 @@ passengerclass, survived
 portembarked, fare
 portembarked, passengerclass
 fare, numparentschildren
+fare, survived
 sex, survived

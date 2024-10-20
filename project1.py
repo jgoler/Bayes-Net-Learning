@@ -4,6 +4,52 @@ import pandas as pd
 from math import log
 from scipy.special import gammaln  # To compute the logarithm of the gamma function
 
+class BayesianNetworkScorer:
+    def __init__(self, dag, data, alpha_value):
+        self.dag = dag
+        self.data = data
+        self.alpha_value = alpha_value
+        self.node_scores = {}  # A dictionary to hold the Bayesian score of each node
+        
+        # Compute the initial Bayesian scores for all nodes
+        self.precompute_node_scores()
+
+    def precompute_node_scores(self):
+        """
+        Precompute the Bayesian scores for all nodes in the graph.
+        This initializes the node_scores dictionary with the score for each node.
+        """
+        for node in self.dag.nodes():
+            parents = list(self.dag.predecessors(node))
+            self.node_scores[node] = bayesian_score(node, parents, self.data, self.alpha_value)
+
+    def update_node_score(self, node):
+        """
+        Update the Bayesian score for a given node when its parents change.
+        """
+        parents = list(self.dag.predecessors(node))
+        self.node_scores[node] = bayesian_score(node, parents, self.data, self.alpha_value)
+
+    def calculate_total_bayesian_score(self):
+        """
+        Calculate the total Bayesian score by summing up the precomputed scores.
+        """
+        return sum(self.node_scores.values())
+
+    def add_edge(self, parent, child):
+        """
+        Add an edge to the DAG and update the scores of the affected nodes.
+        """
+        self.dag.add_edge(parent, child)
+        self.update_node_score(child)  # Only the child node's score needs to be updated
+
+    def remove_edge(self, parent, child):
+        """
+        Remove an edge from the DAG and update the scores of the affected nodes.
+        """
+        self.dag.remove_edge(parent, child)
+        self.update_node_score(child)  # Only the child node's score needs to be updated
+
 
 def bayesian_score(node, parents, data, alpha_value):
     """
@@ -107,9 +153,17 @@ def compute(infile, outfile):
     # Set up uniform Dirichlet prior (alpha value)
     uniform_prior_value = 1  # This is the value for the uniform prior
 
+    # Create the Bayesian network scorer
+    scorer = BayesianNetworkScorer(dag, data, uniform_prior_value)
+
     # Calculate total Bayesian score for the entire graph
-    total_score = calculate_total_bayesian_score(dag, data, uniform_prior_value)
+    total_score = scorer.calculate_total_bayesian_score()
     print(f"Total Bayesian score for the graph: {total_score}")
+
+    # Example of adding a new edge and updating the score
+    scorer.add_edge('fare', 'survived')
+    updated_total_score = scorer.calculate_total_bayesian_score()
+    print(f"Updated total Bayesian score after adding edge 'fare' -> 'survived': {updated_total_score}")
 
     # Write the DAG to the output file
     # Here, the idx2names mapping is straightforward, as we're using node names directly
