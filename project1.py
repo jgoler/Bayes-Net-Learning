@@ -53,20 +53,9 @@ def update_score_on_graph_change(df, node, parents, counts_dict, score_dict, alp
     score_dict[node] = new_score
 
 # compute the bayesian score of a given graph
-def compute_bayesian_score(df, parents_dict, alpha=1.0):
-    # Step 1: Initialize counts for all nodes
-    counts_dict = initialize_counts(df, parents_dict)
-
-    # Step 2: Initialize score dictionary
-    score_dict = {}
-    for node in df.columns:
-        parents = parents_dict.get(node, [])
-        score_dict[node] = compute_node_score(df, node, parents, counts_dict, alpha)
-    
-    # Step 3: Sum the scores to get the total Bayesian score
+def compute_bayesian_score(score_dict):
     total_score = sum(score_dict.values())
-
-    return total_score, counts_dict, score_dict
+    return total_score
 
 '''
 def calculate_bayesian_score(df, parents_dict, alpha=1.0):
@@ -100,7 +89,7 @@ def calculate_bayesian_score(df, parents_dict, alpha=1.0):
 
 def k2(df, node_order, max_parents=3):
     G = nx.DiGraph() # we want it to be a directed graph (bayes nets are DAG)
-    G.add_noes_from(df.columns)
+    G.add_nodes_from(df.columns)
 
     for i, node in enumerate(node_order):
         parents = []
@@ -110,8 +99,18 @@ def compute(infile, outfile):
     # Read the input CSV file using pandas
     df = pd.read_csv(infile)
     parents_dict = {}
-    # Perform the initial Bayesian score computation
-    total_score, counts_dict, score_dict = compute_bayesian_score(df, parents_dict)
+    
+    # Initialize counts for all nodes
+    counts_dict = initialize_counts(df, parents_dict)
+
+    # Initialize score dictionary
+    score_dict = {}
+    for node in df.columns:
+        parents = parents_dict.get(node, [])
+        score_dict[node] = compute_node_score(df, node, parents, counts_dict, 1.0)
+
+
+    total_score = compute_bayesian_score(score_dict)
     # Output the intial total score and return data structures for further updates
     print(f"Initial Bayesian Score: {total_score}")
 
