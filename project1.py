@@ -2,16 +2,17 @@ import sys
 import networkx as nx
 import pandas as pd
 from math import log
-from scipy.special import gammaln  # To compute the logarithm of the gamma function
+from scipy.special import gammaln  
+import itertools
+import random
 
 class BayesianNetworkScorer:
     def __init__(self, dag, data, alpha_value):
         self.dag = dag
         self.data = data
         self.alpha_value = alpha_value
-        self.node_scores = {}  # A dictionary to hold the Bayesian score of each node
+        self.node_scores = {}  
         
-        # Compute the initial Bayesian scores for all nodes
         self.precompute_node_scores()
 
     def precompute_node_scores(self):
@@ -41,14 +42,14 @@ class BayesianNetworkScorer:
         Add an edge to the DAG and update the scores of the affected nodes.
         """
         self.dag.add_edge(parent, child)
-        self.update_node_score(child)  # Only the child node's score needs to be updated
+        self.update_node_score(child)  
 
     def remove_edge(self, parent, child):
         """
         Remove an edge from the DAG and update the scores of the affected nodes.
         """
         self.dag.remove_edge(parent, child)
-        self.update_node_score(child)  # Only the child node's score needs to be updated
+        self.update_node_score(child)  
 
 
 def bayesian_score(node, parents, data, alpha_value):
@@ -60,31 +61,26 @@ def bayesian_score(node, parents, data, alpha_value):
     :param alpha_value: Uniform prior value for Dirichlet distribution
     :return: Bayesian score for the node
     """
-    ri = len(data[node].unique())  # Number of unique values the node can take
+    ri = len(data[node].unique()) 
     qi = 1
     for parent in parents:
-        qi *= len(data[parent].unique())  # Product of unique values in the parent nodes
+        qi *= len(data[parent].unique())  
 
     score = 0
 
-    # Group data by parent configurations
     if parents:
         parent_data = data.groupby(parents)
     else:
-        parent_data = [([], data)]  # No parents case
+        parent_data = [([], data)]  
 
-    # Loop through each parent configuration
     for _, group in parent_data:
         mij = 0
         for k in range(ri):
-            # Count for node in state k given parent configuration j
-            mijk = group[group[node] == k].shape[0]  # Counts rows where node == k
+            mijk = group[group[node] == k].shape[0] 
             mij += mijk
 
-            # Use uniform Dirichlet prior alpha_value
             alpha_ijk_current = alpha_value
 
-            # Add to score using the formula from the image
             score += gammaln(alpha_ijk_current + mijk) - gammaln(alpha_ijk_current)
 
         alpha_ij0 = alpha_value * ri
@@ -104,15 +100,9 @@ def calculate_total_bayesian_score(dag, data, alpha_value):
     """
     total_score = 0
 
-    # Loop through all nodes in the graph
     for node in dag.nodes():
-        # Get the parents of the current node
         parents = list(dag.predecessors(node))
-
-        # Calculate the Bayesian score for the node given its parents
         node_score = bayesian_score(node, parents, data, alpha_value)
-
-        # Add the node's score to the total score
         total_score += node_score
 
     return total_score
@@ -124,52 +114,86 @@ def write_gph(dag, idx2names, filename):
         for edge in dag.edges():
             f.write("{}, {}\n".format(idx2names[edge[0]], idx2names[edge[1]]))
 
+def k2_algorithm(dag, data, alpha_value, node_order, max_parents):
+    """
+    K2 algorithm to find an optimal Bayesian network structure.
+    :param dag: Initial empty DAG (should be a DiGraph from NetworkX)
+    :param data: The dataset (in pandas DataFrame format).
+    :param alpha_value: Uniform prior value for Dirichlet distribution.
+    :param node_order: A list representing the order of the nodes.
+    :param max_parents: Maximum number of parents each node can have.
+    :return: The optimal DAG found by the K2 algorithm.
+    """
+    scorer = BayesianNetworkScorer(dag, data, alpha_value)
+
+    for i, node in enumerate(node_order):
+        current_parents = []
+        best_score = scorer.node_scores[node]
+        for potential_parent in node_order[:i]:
+            if len(current_parents) < max_parents:
+                dag.add_edge(potential_parent, node)
+                scorer.update_node_score(node)  
+                new_score = scorer.node_scores[node]
+                if new_score > best_score:
+                    best_score = new_score
+                    current_parents.append(potential_parent)
+                else:
+                    dag.remove_edge(potential_parent, node)
+                    scorer.update_node_score(node) 
+    return dag
+
 
 def compute(infile, outfile):
-    # Load the dataset from infile (assuming CSV format)
+    """
+    Run the K2 algorithm with multiple node orders to find the best DAG.
+    :param infile: Input CSV file with data.
+    :param outfile: Output file for writing the DAG.
+    :param num_orders: Number of different node orders to try.
+    """
+
+    num_orders = 2000
     data = pd.read_csv(infile)
 
-    # Create the DAG structure using NetworkX
-    dag = nx.DiGraph()
+    if data.columns.duplicated().any():
+        raise ValueError("Dataset contains duplicate column names. Please ensure all columns are uniquely named.")
+    
+    nodes = list(data.columns)
 
-    # Define the edges where the first item in each pair is the parent of the second item
-    edges = [
-        ('age', 'numparentschildren'),
-        ('age', 'passengerclass'),
-        ('age', 'numsiblings'),
-        ('portembarked', 'fare'),
-        ('portembarked', 'passengerclass'),
-        ('fare', 'numparentschildren'),
-        ('numparentschildren', 'sex'),
-        ('numparentschildren', 'numsiblings'),
-        ('passengerclass', 'sex'),
-        ('passengerclass', 'survived'),
-        ('sex', 'survived')
-    ]
+    uniform_prior_value = 1  # Can change if uniform prior isn't 1 if we had more certainty
+    max_parents = 8  # play around with this
 
-    # Add these edges to the graph
-    dag.add_edges_from(edges)
+    best_score = float('-inf')
+    best_dag = None
+    best_node_order = None
 
-    # Set up uniform Dirichlet prior (alpha value)
-    uniform_prior_value = 1  # This is the value for the uniform prior
+    for _ in range(num_orders):
+        node_order = random.sample(nodes, len(nodes))
+        dag = nx.DiGraph()
+        dag.add_nodes_from(node_order)
 
-    # Create the Bayesian network scorer
-    scorer = BayesianNetworkScorer(dag, data, uniform_prior_value)
+        current_dag = k2_algorithm(dag, data, uniform_prior_value, node_order, max_parents)
 
-    # Calculate total Bayesian score for the entire graph
-    total_score = scorer.calculate_total_bayesian_score()
-    print(f"Total Bayesian score for the graph: {total_score}")
+        scorer = BayesianNetworkScorer(current_dag, data, uniform_prior_value)
+        current_score = scorer.calculate_total_bayesian_score()
 
-    # Example of adding a new edge and updating the score
-    scorer.add_edge('fare', 'survived')
-    updated_total_score = scorer.calculate_total_bayesian_score()
-    print(f"Updated total Bayesian score after adding edge 'fare' -> 'survived': {updated_total_score}")
+        if current_score > best_score:
+            best_score = current_score
+            best_dag = current_dag
+            best_node_order = node_order
 
-    # Write the DAG to the output file
-    # Here, the idx2names mapping is straightforward, as we're using node names directly
-    idx2names = {node: node for node in dag.nodes()}  # Maps each node to itself
+    print(f"Best node order: {best_node_order}")
+    print(f"Best Bayesian score: {best_score}")
 
-    write_gph(dag, idx2names, outfile)
+    print("\nParent-child relationships in the best DAG:")
+    for parent, child in best_dag.edges():
+        print(f"{parent} -> {child}")
+
+    idx2names = {node: node for node in best_dag.nodes()}  
+    write_gph(best_dag, idx2names, outfile)
+
+   
+
+
 
 
 
